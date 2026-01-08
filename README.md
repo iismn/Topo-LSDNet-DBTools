@@ -120,6 +120,14 @@ rclpy
 
 ## Changelog
 
+### v1.0.0-inhouse
+- Lane boundary continuous merge logic
+- `is_intersection_or_connector`: `true` when `linktype == 1`
+- Lane ID: link ID only (no boundary ID suffix)
+- Lane type: length-based dominant type selection
+- `lane_type == 0` (none) boundary filtering
+- City-based SHP auto-selection (Yeouido/Sangam)
+
 ### v0.9.0-inhouse (Current)
 - V6 호환 복원: 기존 학습 데이터와 동일한 출력 포맷
 - Lane ID 포맷: `{link_id}_LB{mark_id}_RB{mark_id}` (B prefix 제거)
@@ -127,14 +135,6 @@ rclpy
 - Z 좌표: 0.0으로 고정
 - 빈 laneline: 빈 배열 `[]` 사용
 - Boundary 조합별 separate segment 생성
-- City-based SHP auto-selection (Yeouido/Sangam)
-
-### v1.0.0-inhouse (Experimental)
-- Lane boundary continuous merge logic
-- `is_intersection_or_connector`: `true` when `linktype == 1`
-- Lane ID: link ID only (no boundary ID suffix)
-- Lane type: length-based dominant type selection
-- `lane_type == 0` (none) boundary filtering
 
 ## License
 Released under the MIT License.
