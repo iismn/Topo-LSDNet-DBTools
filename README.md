@@ -41,6 +41,17 @@ Dataset/
 ```
 
 ## Quick Start
+
+### Using YAML Config (Recommended)
+```bash
+# Run with config file
+python utils/ROS2_Converter_streaming.py --config utils/config/default_config.yaml
+
+# Override specific parameters via CLI
+python utils/ROS2_Converter_streaming.py --config utils/config/default_config.yaml --workers 8 --json-only
+```
+
+### Using Python API
 ```python
 from ros_converter.ROS2_Converter import ROS2OpenLaneConverter, ConverterConfig
 
@@ -53,6 +64,54 @@ config = ConverterConfig(
 converter = ROS2OpenLaneConverter(config)
 converter.run()
 ```
+
+## Configuration
+
+### YAML Config File (`utils/config/default_config.yaml`)
+```yaml
+# Paths
+bag_path: "/media/iismn/SSD A/Dataset/inhouse/Dataset/ROSBag_Info"
+output_root: "/home/iismn/Workspace_Share/IEEE_CVF_CVPR/Inhouse_V7"
+calibration_file: "/media/iismn/SSD A/Dataset/inhouse/Dataset/Vehicle_Info/calib.yaml"
+
+# General Settings
+split_name: "train"
+city_name: null  # null = auto-detect from bag path
+jpeg_quality: 100
+max_frames_per_camera: null
+json_only: false
+
+# NGII Annotation Settings
+enable_annotations: true
+ngii_view_width: 50.0
+ngii_view_length: 100.0
+ngii_front_ratio: 0.5
+
+# Trajectory Settings
+trajectory_enable: true
+trajectory_horizon_distance_m: 50.0
+
+# Stationary Skip
+stationary_skip_enable: true
+stationary_skip_window_s: 3.0
+stationary_movement_threshold_m: 0.5
+
+# Streaming Settings
+workers: 16
+parallel_bags: 6
+```
+
+### CLI Arguments
+| Argument | Description |
+|----------|-------------|
+| `--config` | Path to YAML config file |
+| `--json-only` | Skip image conversion, JSON only |
+| `--workers` | Worker threads per bag |
+| `--parallel-bags` | Number of bags to process in parallel |
+| `--bag-path` | Override bag path |
+| `--output-root` | Override output directory |
+| `--split-name` | Split name (train/val/test) |
+| `--max-frames` | Max frames per camera |
 
 ## Configuration Parameters
 | Parameter | Default | Description |
@@ -120,7 +179,13 @@ rclpy
 
 ## Changelog
 
-### v1.0.0-inhouse (Current)
+### v1.1.0-inhouse (Current)
+- YAML config file support (`--config` option)
+- All parameters externally configurable
+- CLI arguments override config file settings
+- DEFAULT constants refactored and organized
+
+### v1.0.0-inhouse
 - Lane boundary continuous merge logic
 - `is_intersection_or_connector`: `true` when `linktype == 1`
 - Lane ID: link ID only (no boundary ID suffix)
@@ -128,10 +193,13 @@ rclpy
 - `lane_type == 0` (none) boundary filtering
 - City-based SHP auto-selection (Yeouido/Sangam)
 
-### v0.x (Previous Training)
-- Separate segment per boundary combination
+### v0.9.0-inhouse
+- V6 compatibility restored: output format matches original training data
+- Lane ID format: `{link_id}_LB{mark_id}_RB{mark_id}` (B prefix removed)
 - `is_intersection_or_connector`: always `false`
-- Lane ID: `{link_id}_LB{left_boundary}_RB{right_boundary}` format
+- Z coordinates: fixed to 0.0
+- Empty lanelines: empty array `[]` instead of virtual lanelines
+- Separate segment per boundary combination
 
 ## License
 Released under the MIT License.

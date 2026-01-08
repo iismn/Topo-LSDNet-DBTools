@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, 
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
-from typing import Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 import os
 
 import cv2  # type: ignore
@@ -862,11 +862,35 @@ class StreamingROS2OpenLaneConverter(ROS2OpenLaneConverter):
 		path.write_bytes(data)
 
 
+def _load_config_from_yaml(config_path: Path) -> Dict[str, Any]:
+	"""Load configuration from YAML file."""
+	if not config_path.exists():
+		raise FileNotFoundError(f"Config file not found: {config_path}")
+	
+	with open(config_path, "r", encoding="utf-8") as f:
+		config_dict = yaml.safe_load(f) or {}
+	
+	# Convert string paths to Path objects
+	path_keys = ["bag_path", "output_root", "calibration_file", "ngii_utils_dir", "ngii_default_shp_base"]
+	for key in path_keys:
+		if key in config_dict and config_dict[key] is not None:
+			config_dict[key] = Path(config_dict[key])
+	
+	return config_dict
+
+
 def _parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description="Streaming ROS2 bag → OpenLaneV2 exporter")
 	parser.add_argument(
+		"--config",
+		type=Path,
+		default=None,
+		help="Path to YAML configuration file.",
+	)
+	parser.add_argument(
 		"--json-only",
 		action="store_true",
+		default=None,
 		help="Skip converting image files and only emit info/metadata outputs.",
 	)
 	parser.add_argument(
@@ -878,7 +902,7 @@ def _parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
 	parser.add_argument(
 		"--parallel-bags",
 		type=int,
-		default=1,
+		default=None,
 		help="Number of bags to process in parallel (default: 1).",
 	)
 	parser.add_argument(
@@ -887,23 +911,77 @@ def _parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
 		default=None,
 		help="Path to the bag directory or root folder containing bags.",
 	)
+	parser.add_argument(
+		"--output-root",
+		type=Path,
+		default=None,
+		help="Output root directory.",
+	)
+	parser.add_argument(
+		"--split-name",
+		type=str,
+		default=None,
+		help="Split name (train/val/test).",
+	)
+	parser.add_argument(
+		"--max-frames",
+		type=int,
+		default=None,
+		dest="max_frames_per_camera",
+		help="Maximum frames per camera.",
+	)
 	return parser.parse_args(argv)
+
+
+def _build_config_from_args_and_yaml(args: argparse.Namespace) -> Tuple[ConverterConfig, int]:
+	"""Build ConverterConfig from YAML and CLI arguments. CLI takes precedence."""
+	
+	# Start with defaults
+	config_dict: Dict[str, Any] = {}
+	parallel_bags = 1
+	
+	# Load from YAML if provided
+	if args.config is not None:
+		yaml_config = _load_config_from_yaml(args.config)
+		
+		# Extract streaming-specific settings
+		if "workers" in yaml_config:
+			config_dict["stream_workers"] = yaml_config.pop("workers")
+		if "parallel_bags" in yaml_config:
+			parallel_bags = yaml_config.pop("parallel_bags")
+		
+		config_dict.update(yaml_config)
+	
+	# CLI arguments override YAML (only if explicitly provided)
+	if args.json_only is not None and args.json_only:
+		config_dict["json_only"] = True
+	if args.workers is not None:
+		config_dict["stream_workers"] = args.workers
+	if args.parallel_bags is not None:
+		parallel_bags = args.parallel_bags
+	if args.bag_path is not None:
+		config_dict["bag_path"] = args.bag_path
+	if args.output_root is not None:
+		config_dict["output_root"] = args.output_root
+	if args.split_name is not None:
+		config_dict["split_name"] = args.split_name
+	if args.max_frames_per_camera is not None:
+		config_dict["max_frames_per_camera"] = args.max_frames_per_camera
+	
+	# Create config, filtering None values
+	filtered_config = {k: v for k, v in config_dict.items() if v is not None}
+	config = ConverterConfig(**filtered_config)
+	
+	return config, parallel_bags
 
 
 def main(argv: Optional[List[str]] = None) -> int:
 	args = _parse_arguments(argv)
 	
-	# Build config kwargs, filtering out None values to let defaults shine
-	config_kwargs = {
-		"json_only": args.json_only,
-		"stream_workers": args.workers,
-	}
-	if args.bag_path is not None:
-		config_kwargs["bag_path"] = args.bag_path
-
-	config = ConverterConfig(**config_kwargs)
-	# Monkey-patch config to add bag parallelism since it's not in the base class definition
-	setattr(config, "stream_bag_parallelism", args.parallel_bags)
+	config, parallel_bags = _build_config_from_args_and_yaml(args)
+	
+	# Set bag parallelism
+	setattr(config, "stream_bag_parallelism", parallel_bags)
 	
 	converter = StreamingROS2OpenLaneConverter(config)
 	return converter.run()

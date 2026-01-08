@@ -1,0 +1,60 @@
+# ROS2 OpenLane Converter Configuration
+# Usage: python ROS2_Converter_streaming.py --config config/default_config.yaml
+
+# ============================================================
+# Paths
+# ============================================================
+bag_path: "/media/iismn/SSD A/Dataset/inhouse/Dataset/ROSBag_Info"
+output_root: "/home/iismn/Workspace_Share/IEEE_CVF_CVPR/Inhouse_V7"
+calibration_file: "/media/iismn/SSD A/Dataset/inhouse/Dataset/Vehicle_Info/calib.yaml"
+
+# ============================================================
+# General Settings
+# ============================================================
+split_name: "train"
+city_name: null  # null = auto-detect from bag path
+jpeg_quality: 100
+max_frames_per_camera: null  # null = no limit
+overwrite_existing: true
+verbose_logging: false
+json_only: false
+
+# ============================================================
+# NGII Annotation Settings
+# ============================================================
+enable_annotations: true
+ngii_view_width: 50.0
+ngii_view_length: 100.0
+ngii_front_ratio: 0.5
+
+# ============================================================
+# Image Processing
+# ============================================================
+rectify_images: true
+
+# ============================================================
+# Trajectory Settings
+# ============================================================
+trajectory_enable: true
+trajectory_horizon_distance_m: 50.0
+trajectory_sample_rate_hz: 10.0
+pose_source_epsg: "EPSG:32652"
+
+# ============================================================
+# Stationary Skip Settings
+# ============================================================
+stationary_skip_enable: true
+stationary_skip_window_s: 3.0
+stationary_movement_threshold_m: 0.5
+
+# ============================================================
+# Streaming Converter Settings
+# ============================================================
+stream_buffer_duration_ns: 400000000
+stream_sync_tolerance_ns: 120000000
+stream_allow_desync_fallback: true
+stream_enable_progress_bar: true
+
+# Worker/Parallelism Settings
+workers: 16
+parallel_bags: 6

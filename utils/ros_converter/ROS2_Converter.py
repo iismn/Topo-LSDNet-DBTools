@@ -93,6 +93,9 @@ DEFAULT_RECTIFY_IMAGES = True
 DEFAULT_STATIONARY_SKIP_ENABLE = True
 DEFAULT_STATIONARY_SKIP_WINDOW_S = 3.0
 DEFAULT_STATIONARY_MOVEMENT_THRESHOLD_M = 0.5
+DEFAULT_NGII_VIEW_WIDTH = 50.0
+DEFAULT_NGII_VIEW_LENGTH = 100.0
+DEFAULT_NGII_FRONT_RATIO = 0.5
 STAGING_SUBDIR_NAME = "__stage__"
 CAMERA_SEQUENCE = [
 	"UDP_GMSL_BL",
@@ -121,9 +124,9 @@ class ConverterConfig:
 	enable_annotations: bool = DEFAULT_NGII_ENABLE_ANNOTATIONS
 	ngii_utils_dir: Path = NGII_UTILS_DIR
 	ngii_default_shp_base: Optional[Path] = None  # None이면 city_name 기반으로 자동 결정
-	ngii_view_width: float = 50.0
-	ngii_view_length: float = 100.0
-	ngii_front_ratio: float = 0.5
+	ngii_view_width: float = DEFAULT_NGII_VIEW_WIDTH
+	ngii_view_length: float = DEFAULT_NGII_VIEW_LENGTH
+	ngii_front_ratio: float = DEFAULT_NGII_FRONT_RATIO
 	rectify_images: bool = DEFAULT_RECTIFY_IMAGES
 	trajectory_enable: bool = DEFAULT_TRAJECTORY_ENABLE
 	trajectory_horizon_distance_m: float = DEFAULT_TRAJECTORY_HORIZON_DISTANCE_M
