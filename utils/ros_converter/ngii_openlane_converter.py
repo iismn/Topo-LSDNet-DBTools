@@ -1165,9 +1165,23 @@ class NGIIToOpenLaneConverter:
                 
                 return existing_coords
             
+            # ========== V6 호환 모드: boundary 조합별 separate segment 생성 ==========
+            # 각 left/right boundary 조합마다 별도 segment를 생성
+            # Lane ID 형식: {link_id}_LB{left_mark_id}_RB{right_mark_id}
+            # V6 호환: Z=0, 빈 laneline은 빈 배열 []
+            
+            # mark_id에서 'B' prefix 제거 (V6 호환)
+            def strip_b_prefix(mark_id):
+                if mark_id.startswith("B"):
+                    return mark_id[1:]
+                return mark_id
+            
+            # boundary 후보 수집
+            left_boundaries = []  # [(mark_id, coords, lane_type), ...]
+            right_boundaries = []
+            
             if marks_gdf is not None and len(marks_gdf) > 0:
-                    
-                # 링크 ID로 한 번에 필터링 (DataFrame 인덱싱 최적화)
+                # 링크 ID로 한 번에 필터링
                 right_candidates = gpd.GeoDataFrame()
                 left_candidates = gpd.GeoDataFrame()
                 
@@ -1179,106 +1193,100 @@ class NGIIToOpenLaneConverter:
                     left_mask = marks_gdf["r_linkid"] == link_id  
                     left_candidates = marks_gdf[left_mask] if left_mask.any() else gpd.GeoDataFrame()
 
-                # Right boundaries 처리 - 연속된 것만 병합 (none type 제외)
+                # Right boundaries 수집 (none type 포함)
                 for idx, mark_row in right_candidates.iterrows():
-                    mark_id = str(mark_row.get("id", ""))
+                    mark_id = strip_b_prefix(str(mark_row.get("id", "")))
                     kind_val = str(mark_row.get("kind", ""))
                     lane_type = self.get_laneline_type_from_kind(kind_val)
-                    
-                    # none type(0)은 건너뛰기
-                    if lane_type == 0:
-                        continue
                     
                     mark_coords = self.linestring_to_coordinates(mark_row["geometry"])
                     if mark_coords:
                         ego_coords = self.transform_to_ego_coordinates(mark_coords, ego_x, ego_y, ego_heading_deg)
                         cropped = self.crop_line_to_region(ego_coords)
                         if len(cropped) >= 2:
-                            merged_right_coords = merge_if_connected(merged_right_coords, cropped)
-                            # 이 boundary의 길이를 해당 type에 누적
-                            seg_length = calc_line_length(cropped)
-                            right_type_lengths[lane_type] += seg_length
-                            right_mark_ids.append(mark_id)
+                            # Z 좌표를 0.0으로 설정 (V6 호환)
+                            cropped_z0 = [[pt[0], pt[1], 0.0] for pt in cropped]
+                            right_boundaries.append((mark_id, cropped_z0, lane_type))
                 
-                # Left boundaries 처리 - 연속된 것만 병합 (none type 제외)
+                # Left boundaries 수집 (none type 포함)
                 for idx, mark_row in left_candidates.iterrows():
-                    mark_id = str(mark_row.get("id", ""))
+                    mark_id = strip_b_prefix(str(mark_row.get("id", "")))
                     kind_val = str(mark_row.get("kind", ""))
                     lane_type = self.get_laneline_type_from_kind(kind_val)
-                    
-                    # none type(0)은 건너뛰기
-                    if lane_type == 0:
-                        continue
                     
                     mark_coords = self.linestring_to_coordinates(mark_row["geometry"])
                     if mark_coords:
                         ego_coords = self.transform_to_ego_coordinates(mark_coords, ego_x, ego_y, ego_heading_deg)
                         cropped = self.crop_line_to_region(ego_coords)
                         if len(cropped) >= 2:
-                            merged_left_coords = merge_if_connected(merged_left_coords, cropped)
-                            # 이 boundary의 길이를 해당 type에 누적
-                            seg_length = calc_line_length(cropped)
-                            left_type_lengths[lane_type] += seg_length
-                            left_mark_ids.append(mark_id)
+                            # Z 좌표를 0.0으로 설정 (V6 호환)
+                            cropped_z0 = [[pt[0], pt[1], 0.0] for pt in cropped]
+                            left_boundaries.append((mark_id, cropped_z0, lane_type))
 
-            # Dominant type 결정: 길이 비율 기반 (가장 긴 타입 선택, none 제외)
-            def get_dominant_type_by_length(type_lengths):
-                """type별 길이를 보고 가장 긴 타입 반환 (0=none 제외하고 비교)"""
-                # none 제외한 타입들만 비교
-                solid_len = type_lengths.get(1, 0.0)
-                dashed_len = type_lengths.get(2, 0.0)
-                
-                if solid_len == 0.0 and dashed_len == 0.0:
-                    return 0  # 둘 다 없으면 none
-                
-                # 가장 긴 타입 선택
-                if solid_len >= dashed_len:
-                    return 1  # solid
-                else:
-                    return 2  # dashed
-            
-            left_type_final = get_dominant_type_by_length(left_type_lengths)
-            right_type_final = get_dominant_type_by_length(right_type_lengths)
+            # centerline도 Z=0으로 변환 (V6 호환)
+            cropped_centerline_z0 = [[pt[0], pt[1], 0.0] for pt in cropped_centerline]
 
-            # ========== 가상 laneline 생성 (빈 경우) ==========
-            # left/right laneline이 비어있으면 centerline 기반으로 가상 laneline 생성
-            # OpenLane-V2와 동일하게 type=0(none)이어도 유효한 좌표를 갖도록 함
-            DEFAULT_LANE_HALF_WIDTH = 1.75  # 기본 차선폭의 절반 (3.5m / 2)
-            
-            if not merged_left_coords or len(merged_left_coords) < 2:
-                # centerline 기반 가상 left laneline 생성
-                virtual_left, _ = self.generate_virtual_laneline_from_centerline(
-                    cropped_centerline, offset_distance=DEFAULT_LANE_HALF_WIDTH)
-                merged_left_coords = virtual_left
-                left_type_final = 0  # none type으로 설정
-            
-            if not merged_right_coords or len(merged_right_coords) < 2:
-                # centerline 기반 가상 right laneline 생성
-                _, virtual_right = self.generate_virtual_laneline_from_centerline(
-                    cropped_centerline, offset_distance=DEFAULT_LANE_HALF_WIDTH)
-                merged_right_coords = virtual_right
-                right_type_final = 0  # none type으로 설정
-            # ================================================
-
-            # 단일 segment 생성 (1 링크 = 1 centerline = 1 segment, 연속 병합된 boundary)
-            segment_data = {
-                "id": link_id,
-                "centerline": cropped_centerline,
-                "left_laneline": merged_left_coords,       # 단일 리스트 [[x,y,z], ...]
-                "left_laneline_type": left_type_final,     # 단일 정수
-                "right_laneline": merged_right_coords,     # 단일 리스트 [[x,y,z], ...]
-                "right_laneline_type": right_type_final,   # 단일 정수
-                "is_intersection_or_connector": self.is_intersection_link(row),
-                "source_link": link_id,
-            }
-            
-            # mark ID 정보 추가 (있는 경우)
-            if left_mark_ids:
-                segment_data["left_marks"] = left_mark_ids
-            if right_mark_ids:
-                segment_data["right_marks"] = right_mark_ids
-                    
-            lane_segments.append(segment_data)
+            # boundary 조합별 segment 생성
+            if left_boundaries and right_boundaries:
+                # 양쪽 boundary 모두 있음 -> 조합별 segment
+                for left_mark_id, left_coords, left_type in left_boundaries:
+                    for right_mark_id, right_coords, right_type in right_boundaries:
+                        segment_id = f"{link_id}_LB{left_mark_id}_RB{right_mark_id}"
+                        segment_data = {
+                            "id": segment_id,
+                            "centerline": cropped_centerline_z0,
+                            "left_laneline": left_coords,
+                            "left_laneline_type": left_type,
+                            "right_laneline": right_coords,
+                            "right_laneline_type": right_type,
+                            "is_intersection_or_connector": False,  # V6 호환: 항상 false
+                            "source_link": link_id,
+                        }
+                        lane_segments.append(segment_data)
+            elif left_boundaries:
+                # left boundary만 있음 -> right는 빈 배열
+                for left_mark_id, left_coords, left_type in left_boundaries:
+                    segment_id = f"{link_id}_LB{left_mark_id}"
+                    segment_data = {
+                        "id": segment_id,
+                        "centerline": cropped_centerline_z0,
+                        "left_laneline": left_coords,
+                        "left_laneline_type": left_type,
+                        "right_laneline": [],  # V6 호환: 빈 배열
+                        "right_laneline_type": 0,
+                        "is_intersection_or_connector": False,
+                        "source_link": link_id,
+                    }
+                    lane_segments.append(segment_data)
+            elif right_boundaries:
+                # right boundary만 있음 -> left는 빈 배열
+                for right_mark_id, right_coords, right_type in right_boundaries:
+                    segment_id = f"{link_id}_RB{right_mark_id}"
+                    segment_data = {
+                        "id": segment_id,
+                        "centerline": cropped_centerline_z0,
+                        "left_laneline": [],  # V6 호환: 빈 배열
+                        "left_laneline_type": 0,
+                        "right_laneline": right_coords,
+                        "right_laneline_type": right_type,
+                        "is_intersection_or_connector": False,
+                        "source_link": link_id,
+                    }
+                    lane_segments.append(segment_data)
+            else:
+                # boundary 없음 -> 둘 다 빈 배열
+                segment_data = {
+                    "id": link_id,
+                    "centerline": cropped_centerline_z0,
+                    "left_laneline": [],  # V6 호환: 빈 배열
+                    "left_laneline_type": 0,
+                    "right_laneline": [],  # V6 호환: 빈 배열
+                    "right_laneline_type": 0,
+                    "is_intersection_or_connector": False,
+                    "source_link": link_id,
+                }
+                lane_segments.append(segment_data)
+            # ========== V6 호환 모드 끝 ==========
             
             marking_end = time.time()
             marking_time += (marking_end - marking_start)
