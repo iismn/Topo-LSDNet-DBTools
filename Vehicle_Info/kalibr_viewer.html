@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalibr YAML Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; color: white; font-family: 'Segoe UI', sans-serif; }
+        
+        /* UI 패널 스타일 */
+        #ui-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: auto;
+            z-index: 100;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        h2 { margin: 0 0 10px 0; font-size: 18px; color: #4dc3ff; }
+        p { margin: 5px 0; font-size: 13px; color: #ccc; }
+
+        /* 파일 입력 스타일 */
+        input[type="file"] {
+            display: block;
+            margin-top: 10px;
+            color: white;
+            font-size: 13px;
+        }
+
+        /* 라벨 스타일 */
+        .cam-label {
+            position: absolute;
+            color: white;
+            font-size: 14px; 
+            font-weight: bold;
+            text-shadow: 2px 2px 4px black;
+            pointer-events: none;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            border: 1px solid rgba(255,255,255,0.3);
+            display: none; /* 초기엔 숨김 */
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+</head>
+<body>
+
+    <div id="ui-panel">
+        <h2>Kalibr YAML Viewer</h2>
+        <p>1. Upload your <code>kalibr_result.yaml</code></p>
+        <p>2. Automatically parses cam chain & intrinsics</p>
+        <input type="file" id="fileInput" accept=".yaml,.yml">
+        <hr style="border-color: #444; margin: 10px 0;">
+        <div id="status" style="color: #ffff00; font-size: 12px;">Waiting for file...</div>
+        <div id="legend" style="display:none; margin-top:10px;">
+            <p style="color: #ff4444;">Red Axis: X (Down)</p>
+            <p style="color: #44ff44;">Green Axis: Y (Right)</p>
+            <p style="color: #4444ff;">Blue Axis: Z (Forward)</p>
+        </div>
+    </div>
+
+    <div id="label-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 전역 변수 ---
+        let scene, camera, renderer, controls, visGroup;
+        let labels = []; // 라벨 관리 배열
+
+        initThree();
+        animate();
+
+        // --- 1. 파일 처리 이벤트 ---
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect, false);
+
+        function handleFileSelect(evt) {
+            const file = evt.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                try {
+                    const doc = jsyaml.load(content);
+                    document.getElementById('status').innerText = `Loaded: ${Object.keys(doc).length} cameras found.`;
+                    document.getElementById('status').style.color = '#44ff44';
+                    document.getElementById('legend').style.display = 'block';
+                    
+                    processYamlData(doc);
+                } catch (err) {
+                    console.error(err);
+                    document.getElementById('status').innerText = "Error parsing YAML!";
+                    document.getElementById('status').style.color = '#ff4444';
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- 2. Three.js 초기화 ---
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x222222);
+
+            // 그리드
+            const gridHelper = new THREE.GridHelper(20, 20, 0x555555, 0x333333);
+            gridHelper.rotation.x = Math.PI / 2; 
+            scene.add(gridHelper);
+            
+            // 월드 축
+            const axesHelper = new THREE.AxesHelper(0.5);
+            scene.add(axesHelper);
+
+            // 카메라
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+            camera.position.set(0, 0, 8);
+            camera.up.set(0, 1, 0);
+
+            // 렌더러
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 컨트롤
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // 시각화 그룹 (전체 회전 적용)
+            visGroup = new THREE.Group();
+            visGroup.rotation.z = -Math.PI; // World Y-Down 보정
+            scene.add(visGroup);
+
+            // 리사이즈 이벤트
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // --- 3. YAML 데이터 파싱 및 처리 ---
+        function processYamlData(doc) {
+            // 1. 기존 객체 삭제
+            while(visGroup.children.length > 0){ 
+                visGroup.remove(visGroup.children[0]); 
+            }
+            const labelContainer = document.getElementById('label-container');
+            labelContainer.innerHTML = ''; // 기존 라벨 삭제
+            labels.length = 0; // 배열 초기화
+
+            // 2. 카메라 키 정렬 (cam0, cam1, ... 순서 보장)
+            const sortedKeys = Object.keys(doc).sort((a, b) => {
+                // 숫자 추출하여 정렬 (cam10이 cam2보다 뒤에 오도록)
+                const numA = parseInt(a.replace('cam', ''));
+                const numB = parseInt(b.replace('cam', ''));
+                return numA - numB;
+            });
+
+            // 3. 체인 포즈 계산
+            let currentPose = new THREE.Matrix4(); // Identity (cam0 기준)
+            
+            // 경로선 포인트
+            const points = [];
+            points.push(new THREE.Vector3(0,0,0));
+
+            sortedKeys.forEach((key, index) => {
+                const camData = doc[key];
+                
+                // Extrinsic 계산 (T_cn_cnm1 존재 시)
+                if (camData.T_cn_cnm1) {
+                    const rawM = camData.T_cn_cnm1; // 4x4 array
+                    const mat = new THREE.Matrix4();
+                    // YAML 배열을 Three.js Matrix4로 변환 (Row-major 입력)
+                    mat.set(
+                        rawM[0][0], rawM[0][1], rawM[0][2], rawM[0][3],
+                        rawM[1][0], rawM[1][1], rawM[1][2], rawM[1][3],
+                        rawM[2][0], rawM[2][1], rawM[2][2], rawM[2][3],
+                        rawM[3][0], rawM[3][1], rawM[3][2], rawM[3][3]
+                    );
+                    
+                    // Pose = Prev_Pose * Inverse(T_cn_cnm1)
+                    const invMat = mat.invert();
+                    currentPose.multiply(invMat);
+                }
+
+                // 현재 포즈 저장
+                const position = new THREE.Vector3();
+                const quaternion = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                currentPose.decompose(position, quaternion, scale);
+                
+                if(index > 0) points.push(position.clone());
+
+                // 4. 시각화 객체 생성
+                const group = new THREE.Group();
+                group.position.copy(position);
+                group.quaternion.copy(quaternion);
+
+                // 축 (Thick)
+                group.add(createThickAxes(0.3, 0.015));
+
+                // 색상 (cam0=Red, Last=Blue, Others=Gray)
+                let color = 0xaaaaaa;
+                if (index === 0) color = 0xff4444;
+                else if (index === sortedKeys.length - 1) color = 0x4444ff;
+
+                // Frustum (Intrinsic 기반)
+                if (camData.intrinsics && camData.resolution) {
+                    const frustum = createExactFrustum(camData.intrinsics, camData.resolution, color);
+                    group.add(frustum);
+                }
+
+                visGroup.add(group);
+
+                // 5. 라벨 생성
+                createLabel(key, camData.rostopic || key, position, index, sortedKeys.length);
+            });
+
+            // 6. 경로선 그리기
+            const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2 });
+            visGroup.add(new THREE.Line(lineGeo, lineMat));
+        }
+
+        // --- 4. 지오메트리 생성 함수 ---
+
+        function createThickAxes(size, radius) {
+            const group = new THREE.Group();
+            // X (Red) - Down
+            const xG = new THREE.CylinderGeometry(radius, radius, size, 8);
+            xG.rotateZ(-Math.PI/2); xG.translate(size/2, 0, 0);
+            group.add(new THREE.Mesh(xG, new THREE.MeshBasicMaterial({color: 0xff4444})));
+            // Y (Green) - Right
+            const yG = new THREE.CylinderGeometry(radius, radius, size, 8);
+            yG.translate(0, size/2, 0);
+            group.add(new THREE.Mesh(yG, new THREE.MeshBasicMaterial({color: 0x44ff44})));
+            // Z (Blue) - Forward
+            const zG = new THREE.CylinderGeometry(radius, radius, size, 8);
+            zG.rotateX(Math.PI/2); zG.translate(0, 0, size/2);
+            group.add(new THREE.Mesh(zG, new THREE.MeshBasicMaterial({color: 0x4444ff})));
+            return group;
+        }
+
+        function createExactFrustum(intrinsics, resolution, color) {
+            const [fx, fy, cx, cy] = intrinsics;
+            const [W, H] = resolution;
+            const Z = 0.5; // Depth scale
+
+            // Pinhole Projection (x = (u-cx)*Z/fx)
+            const x_tl = (0 - cx) * Z / fx; const y_tl = (0 - cy) * Z / fy;
+            const x_tr = (W - cx) * Z / fx; const y_tr = (0 - cy) * Z / fy;
+            const x_br = (W - cx) * Z / fx; const y_br = (H - cy) * Z / fy;
+            const x_bl = (0 - cx) * Z / fx; const y_bl = (H - cy) * Z / fy;
+
+            const vertices = new Float32Array([
+                0,0,0, x_tl,y_tl,Z,   0,0,0, x_tr,y_tr,Z,   
+                0,0,0, x_br,y_br,Z,   0,0,0, x_bl,y_bl,Z,
+                x_tl,y_tl,Z, x_tr,y_tr,Z,   x_tr,y_tr,Z, x_br,y_br,Z,
+                x_br,y_br,Z, x_bl,y_bl,Z,   x_bl,y_bl,Z, x_tl,y_tl,Z
+            ]);
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: color }));
+        }
+
+        // --- 5. 라벨링 로직 ---
+
+        function createLabel(key, text, position, index, total) {
+            const div = document.createElement('div');
+            div.className = 'cam-label';
+            div.textContent = text; // rostopic 이름 표시
+            
+            // 색상 강조
+            if (index === 0) div.style.color = '#ffaaaa';
+            else if (index === total - 1) div.style.color = '#aaaaff';
+
+            document.getElementById('label-container').appendChild(div);
+            
+            labels.push({
+                element: div,
+                localPos: position.clone()
+            });
+        }
+
+        function updateLabels() {
+            if(labels.length === 0) return;
+            
+            visGroup.updateMatrixWorld(); // 그룹 변환 적용
+
+            labels.forEach(lbl => {
+                // 로컬 좌표 -> 월드 좌표 -> 화면 좌표
+                const vec = lbl.localPos.clone();
+                vec.applyMatrix4(visGroup.matrixWorld);
+                vec.project(camera);
+
+                // NDC 체크 (화면 앞/뒤, 범위)
+                if (vec.z > 1 || Math.abs(vec.x) > 1.1 || Math.abs(vec.y) > 1.1) {
+                    lbl.element.style.display = 'none';
+                } else {
+                    lbl.element.style.display = 'block';
+                    const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-(vec.y * 0.5) + 0.5) * window.innerHeight;
+                    
+                    lbl.element.style.left = `${x}px`;
+                    lbl.element.style.top = `${y - 40}px`; // 위치 오프셋
+                    lbl.element.style.transform = 'translateX(-50%)'; // 중앙 정렬
+                }
+            });
+        }
+
+        // --- 6. 애니메이션 루프 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            updateLabels();
+            renderer.render(scene, camera);
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Cache directories
+cache/
+**/cache/
+
+# Large data folders - only keep folder structure
+HDMap_Info/*/
+ROSBag_Info/*/
+
+# Zip files
+*.zip
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
