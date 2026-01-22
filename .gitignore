@@ -1,0 +1,76 @@
+# =============================================================================
+# Topo-LSDNet-DBTools / OpenLaneV2 Branch
+# =============================================================================
+
+# -------------------- Python --------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# -------------------- Virtual Environments --------------------
+.env
+.venv
+env/
+venv/
+ENV/
+
+# -------------------- IDE --------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# -------------------- OS --------------------
+.DS_Store
+Thumbs.db
+
+# -------------------- Large Data Files --------------------
+# OpenLaneV2 dataset splits (large - not in Git)
+train/
+val/
+test/
+
+# SD Map outputs (generated - not in Git)
+sd_map_graph_all/
+sd_map_raster_all/
+sd_map_imagery_all/
+
+# Data dictionary files (large)
+*.json
+!utils/**/*.json
+
+# Pickle files
+*.pkl
+
+# MD5 checksum files
+*.md5
+
+# Text data files
+data_dict_*.txt
+
+# -------------------- Temporary Files --------------------
+*.tmp
+*.temp
+*.log
+*.cache
+
+# -------------------- OSMnx Cache --------------------
+/tmp/osmnx_cache/
