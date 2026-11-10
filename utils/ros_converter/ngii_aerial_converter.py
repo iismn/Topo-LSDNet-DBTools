@@ -13,6 +13,9 @@ Main features:
 - Convert UTM coordinates to latitude/longitude.
 - Process odometry CSV files and download imagery for each pose.
 - Rotate and crop images to the requested physical dimensions.
+
+Set NAVER_MAPS_CLIENT_ID and NAVER_MAPS_CLIENT_SECRET in the environment
+before running this script to download imagery.
 """
 
 import os
@@ -693,11 +696,8 @@ def main():
     """Main function"""
     LOGK("Init", "NGII Aerial Image Downloader")
     
-    # Naver Cloud Platform API key setup
-    client_id = "keo25st5xp"
-    client_secret = "RsWsl8Lb6Vacuzi3YA0ru6oNYl7bfghRZZdXWHCn"
-    
-    LOGK("API Setup", f"completed (ID: {client_id})")
+    client_id = os.getenv("NAVER_MAPS_CLIENT_ID", "").strip()
+    client_secret = os.getenv("NAVER_MAPS_CLIENT_SECRET", "").strip()
     
     # Initialize downloader
     downloader = NGIIAerialImageDownloaderV4(
